@@ -1,3 +1,18 @@
+"""
+梯度累积器 —— 在 FP32 精度下累积梯度，支持 ZeRO 优化和 DDP 通信钩子。
+
+本模块实现了混合精度训练中的梯度累积机制：
+    - FP32GradientAccumulator: 核心梯度累积器，在 FP32 精度下累积梯度
+    - FP32GradBucketManager: DDP 梯度桶管理器
+    - get_fp32_accum_hook: DDP 通信钩子工厂函数
+
+核心设计：
+    1. 维护一个连续的 FP32 梯度缓冲区，避免内存碎片
+    2. 每次反向传播时，将半精度梯度累加到 FP32 缓冲区
+    3. 支持跨 DP 进程组的梯度同步（AllReduce 或 ReduceScatter）
+    4. 支持 ZeRO Stage 1 的参数分片优化
+"""
+
 import dataclasses
 from abc import ABC, abstractmethod
 from collections import OrderedDict
@@ -16,42 +31,102 @@ logger = logging.get_logger(__name__)
 
 
 class GradientAccumulator(ABC):
+    """梯度累积器抽象基类，定义了梯度累积的通用接口。
+
+    所有梯度累积器必须实现以下方法：
+        - backward: 执行反向传播并累积梯度
+        - step: 将 FP32 权重同步回半精度参数
+        - sync_gradients_across_dp: 跨 DP 进程组同步梯度
+        - zero_grad: 清零梯度
+        - get_parameter_for_optimizer: 获取优化器使用的 FP32 参数
+        - get_grad_buffer: 获取梯度缓冲区
+        - state_dict / load_state_dict: 状态序列化/反序列化
+
+    Attributes:
+        fp32_grads_allreduce_handle (Optional[torch.futures.Future]): 最后一次 AllReduce 的句柄。
+    """
+
     fp32_grads_allreduce_handle: Optional[torch.futures.Future]
 
     @abstractmethod
     def __init__(self, named_parameters: Iterator[Tuple[str, NanotronParameter]]):
+        """初始化梯度累积器。
+
+        Args:
+            named_parameters: 模型参数的 (名称, 参数) 迭代器。
+        """
         ...
 
     @abstractmethod
     def backward(self, loss: torch.Tensor):
+        """执行反向传播并累积梯度。
+
+        Args:
+            loss (torch.Tensor): 损失值。
+        """
         ...
 
     @abstractmethod
     def step(self):
+        """将 FP32 权重同步回半精度参数。"""
         ...
 
     @abstractmethod
     def sync_gradients_across_dp(self, dp_pg: dist.ProcessGroup, reduce_op: dist.ReduceOp, reduce_scatter: bool):
+        """跨 DP 进程组同步梯度。
+
+        Args:
+            dp_pg (dist.ProcessGroup): 数据并行进程组。
+            reduce_op (dist.ReduceOp): 归约操作（如 SUM、AVG）。
+            reduce_scatter (bool): 是否使用 ReduceScatter 替代 AllReduce。
+        """
         ...
 
     @abstractmethod
     def zero_grad(self):
+        """清零梯度缓冲区。"""
         ...
 
     @abstractmethod
     def get_parameter_for_optimizer(self, name: str) -> NanotronParameter:
+        """获取优化器使用的 FP32 参数。
+
+        Args:
+            name (str): 参数名称。
+
+        Returns:
+            NanotronParameter: FP32 参数。
+        """
         ...
 
     @abstractmethod
     def get_grad_buffer(self, name: str) -> torch.Tensor:
+        """获取指定参数的梯度缓冲区。
+
+        Args:
+            name (str): 参数名称。
+
+        Returns:
+            torch.Tensor: FP32 梯度缓冲区。
+        """
         ...
 
     @abstractmethod
     def state_dict(self) -> Dict[str, torch.Tensor]:
+        """获取梯度累积器的状态字典。
+
+        Returns:
+            Dict[str, torch.Tensor]: 状态字典。
+        """
         ...
 
     @abstractmethod
     def load_state_dict(self, state_dict: torch.Tensor):
+        """从状态字典加载梯度累积器状态。
+
+        Args:
+            state_dict (Dict[str, torch.Tensor]): 状态字典。
+        """
         ...
 
 

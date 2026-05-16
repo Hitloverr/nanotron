@@ -1,3 +1,22 @@
+"""
+Nanotron 配置系统 —— 定义训练大语言模型所需的所有配置参数。
+
+本模块使用 Python dataclass 定义了完整的配置层次结构，包括：
+    - GeneralArgs: 通用训练参数（项目名、运行名、随机种子等）
+    - TokensArgs: 序列长度、批大小、训练步数等 token 相关参数
+    - ModelArgs: 模型架构和初始化参数
+    - OptimizerArgs: 优化器和学习率调度器参数
+    - ParallelismArgs: 3D 并行配置（TP/PP/DP/CP/EP）
+    - DataArgs / DatasetStageArgs: 数据集配置
+    - CheckpointsArgs: 检查点保存和恢复参数
+    - LoggingArgs / MetricsLoggingArgs: 日志和指标记录参数
+    - ProfilerArgs: 性能分析参数
+    - GenerationArgs: 文本生成参数
+    - Config: 顶层配置类，组合所有子配置
+
+配置可通过 YAML 文件加载，使用 dacite 库进行类型安全的反序列化。
+"""
+
 import datetime
 import glob
 import os
@@ -36,6 +55,15 @@ DEFAULT_SEED = 42
 
 @dataclass
 class BenchArgs:
+    """基准测试参数。
+
+    Attributes:
+        model_name (str): 模型名称。
+        sequence_length (int): 序列长度。
+        micro_batch_size (int): 微批大小。
+        batch_accumulation_per_replica (int): 每个副本的梯度累积步数。
+        benchmark_csv_path (str): 基准测试结果 CSV 文件路径。
+    """
     model_name: str
     sequence_length: int
     micro_batch_size: int
@@ -45,7 +73,13 @@ class BenchArgs:
 
 @dataclass
 class LoggingArgs:
-    """Arguments related to logging"""
+    """日志记录参数。
+
+    Attributes:
+        log_level (Optional[str]): 全局日志级别，可选值: debug/info/warning/error/critical/passive。
+        log_level_replica (Optional[str]): 副本日志级别，仅 rank 0 使用 log_level，其他 rank 使用此级别。
+        iteration_step_info_interval (Optional[int]): 迭代步信息打印间隔，默认为 1。
+    """
 
     log_level: Optional[str] = None
     log_level_replica: Optional[str] = None
@@ -82,7 +116,12 @@ class LoggingArgs:
 
 @dataclass
 class MetricsLoggingArgs:
-    """Arguments related to metrics logging and tracking"""
+    """指标日志记录参数。
+
+    Attributes:
+        log_level (int): 指标日志级别，0=基础，1=完整。
+        log_detail_interval (int): 详细指标记录间隔（步数）。
+    """
 
     log_level: int = 0
     log_detail_interval: int = 10
@@ -96,6 +135,16 @@ class MetricsLoggingArgs:
 
 @dataclass
 class PretrainDatasetsArgs:
+    """预训练数据集参数（基于 HuggingFace datasets）。
+
+    Attributes:
+        hf_dataset_or_datasets (Union[str, list, dict]): HuggingFace 数据集名称或配置。
+        hf_dataset_splits (Optional[Union[str, list]]): 数据集划分，默认为 "train"。
+        hf_dataset_config_name (Optional[str]): HuggingFace 数据集配置名称。
+        dataset_processing_num_proc_per_process (Optional[int]): 每个进程的数据处理工作数，默认为 1。
+        dataset_overwrite_cache (Optional[bool]): 是否覆盖数据集缓存，默认为 False。
+        text_column_name (Optional[str]): 文本列名，默认为 "text"。
+    """
     hf_dataset_or_datasets: Union[str, list, dict]
     hf_dataset_splits: Optional[Union[str, list]] = None
     hf_dataset_config_name: Optional[str] = None
@@ -112,7 +161,17 @@ class PretrainDatasetsArgs:
 
 @dataclass
 class SFTDatasetsArgs:
-    # TODO @nouamane: which config do we want for SFT?
+    """监督微调（SFT）数据集参数。
+
+    Attributes:
+        hf_dataset_or_datasets (Union[str, list, dict]): HuggingFace 数据集名称或配置。
+        hf_dataset_splits (Optional[Union[str, list]]): 数据集划分，默认为 "train"。
+        hf_dataset_config_name (Optional[str]): HuggingFace 数据集配置名称。
+        dataset_processing_num_proc_per_process (Optional[int]): 每个进程的数据处理工作数。
+        dataset_overwrite_cache (Optional[bool]): 是否覆盖数据集缓存。
+        sft_dataloader (Optional[bool]): 是否使用 SFT 数据加载器，默认为 True。
+        debug_max_samples (Optional[int]): 调试模式下的最大样本数。
+    """
     hf_dataset_or_datasets: Union[str, list, dict]
     hf_dataset_splits: Optional[Union[str, list]] = None
     hf_dataset_config_name: Optional[str] = None
@@ -128,7 +187,15 @@ class SFTDatasetsArgs:
 
 @dataclass
 class S3UploadArgs:
-    """Arguments related to uploading checkpoints on s3"""
+    """S3 检查点上传参数。
+
+    Attributes:
+        upload_s3_path (xPath): S3 上传路径。
+        remove_after_upload (bool): 上传后是否删除本地文件。
+        s5cmd_numworkers (Optional[int]): s5cmd 并发工作数。
+        s5cmd_concurrency (Optional[int]): s5cmd 并发请求数。
+        s5cmd_path (Optional[xPath]): s5cmd 可执行文件路径。
+    """
 
     upload_s3_path: xPath
     remove_after_upload: bool
@@ -145,6 +212,24 @@ class S3UploadArgs:
 
 @dataclass
 class NanosetDatasetsArgs:
+    """Nanoset 数据集参数（基于预分词的二进制数据格式）。
+
+    Nanoset 使用 datatrove 预处理的二进制格式，支持高效的分布式数据加载。
+
+    Attributes:
+        dataset_folder (Union[str, List[str]]): 数据集文件夹路径。
+        dataset_weights (Optional[List[float]]): 各数据集的采样权重。
+        dataset_read_path (Optional[Union[str, List[str]]]): 本地读取路径（优先于 dataset_folder）。
+        tokenizer_name (Optional[str]): 分词器名称，从元数据文件自动推断。
+        vocab_size (Optional[int]): 词表大小，从元数据文件自动推断。
+        token_size_in_bytes (Optional[int]): 每个 token 的字节大小，从元数据文件自动推断。
+        return_positions (Optional[bool]): 是否返回位置信息，默认为 True。
+        skip_in_stream (Optional[bool]): 是否在流式读取中跳过，默认为 False。
+        pad_samples_to_global_batch_size (Optional[bool]): 是否填充样本到全局批大小，默认为 False。
+        dataset_max_tokens (Optional[List[int]]): 各数据集的最大 token 数。
+        shuffle_files (Optional[bool]): 是否打乱文件顺序，默认为 False。
+        use_old_brrr_dataloader (Optional[bool]): 是否使用旧版数据加载器，默认为 False。
+    """
     dataset_folder: Union[str, List[str]]
     dataset_weights: Optional[List[float]] = None
     dataset_read_path: Optional[
@@ -207,7 +292,14 @@ class NanosetDatasetsArgs:
 
 @dataclass
 class DataArgs:
-    """Arguments related to the data and data files processing"""
+    """数据加载参数。
+
+    Attributes:
+        dataset (Optional[Union[PretrainDatasetsArgs, NanosetDatasetsArgs, SFTDatasetsArgs]]):
+            数据集配置，None 时使用虚拟无限数据生成器。
+        seed (Optional[int]): 数据加载随机种子，默认为 DEFAULT_SEED。
+        num_loading_workers (Optional[int]): 数据加载工作进程数，默认为 1。
+    """
 
     dataset: Optional[
         Union[PretrainDatasetsArgs, NanosetDatasetsArgs, SFTDatasetsArgs]
@@ -222,7 +314,14 @@ class DataArgs:
 
 @dataclass
 class DatasetStageArgs:
-    """Arguments for loading dataset in different stages of the training process"""
+    """训练阶段数据集参数，支持训练过程中切换数据集。
+
+    Attributes:
+        name (str): 阶段名称（必须唯一）。
+        start_training_step (int): 阶段开始的训练步数（第一个阶段必须为 1）。
+        data (DataArgs): 该阶段的数据配置。
+        sequence_length (Optional[int]): 该阶段的序列长度，None 时使用全局配置。
+    """
 
     name: str
     start_training_step: int
@@ -236,10 +335,17 @@ class DatasetStageArgs:
 
 @dataclass
 class CheckpointsArgs:
-    """Arguments related to checkpoints:
-    checkpoints_path: where to save the checkpoints
-    checkpoint_interval: how often to save the checkpoints
-    resume_checkpoint_path: if you want to load from a specific checkpoint path
+    """检查点保存和恢复参数。
+
+    Attributes:
+        checkpoints_path (Path): 检查点保存路径。
+        checkpoint_interval (int): 检查点保存间隔（步数）。
+        save_initial_state (Optional[bool]): 是否保存初始状态，默认为 False。
+        save_final_state (Optional[bool]): 是否保存最终状态，默认为 True。
+        resume_checkpoint_path (Optional[xPath]): 恢复训练的检查点路径。
+        load_lr_scheduler (Optional[bool]): 恢复时是否加载学习率调度器状态，默认为 True。
+        load_optimizer (Optional[bool]): 恢复时是否加载优化器状态，默认为 True。
+        checkpoints_path_is_shared_file_system (Optional[bool]): 检查点路径是否为共享文件系统，默认为 False。
     """
 
     checkpoints_path: Path
@@ -260,14 +366,16 @@ class CheckpointsArgs:
 
 @dataclass
 class GeneralArgs:
-    """General training experiment arguments
+    """通用训练实验参数。
 
-    Args:
-        project: Name of the project (a project gather several runs in common tensorboard/hub-folders)
-        run: Name of the run
-        step: Global step (updated when we save the checkpoint)
-        consumed_train_samples: Number of samples consumed during training (should be actually just step*batch_size)
-        ignore_sanity_checks: Whether to ignore sanity checks
+    Attributes:
+        project (str): 项目名称（同一项目的多次运行共享 tensorboard/hub 目录）。
+        run (Optional[str]): 运行名称，支持 %date 和 %jobid 占位符。
+        seed (Optional[int]): 全局随机种子，默认为 DEFAULT_SEED。
+        step (Optional[int]): 当前全局步数（从检查点恢复时更新）。
+        consumed_train_samples (Optional[int]): 已消耗的训练样本数。
+        benchmark_csv_path (Optional[Path]): 基准测试结果路径。
+        ignore_sanity_checks (bool): 是否跳过健全性检查，默认为 True。
     """
 
     project: str
@@ -289,7 +397,20 @@ class GeneralArgs:
 
 @dataclass
 class ProfilerArgs:
-    """Arguments related to profiling"""
+    """性能分析参数。
+
+    Attributes:
+        profiler_export_path (Optional[Path]): 分析结果导出路径。
+        wait (int): 等待步数，默认为 1。
+        warmup (int): 预热步数，默认为 1。
+        active (int): 活跃记录步数，默认为 1。
+        repeat (int): 重复次数，默认为 1。
+        skip_first (int): 跳过前 N 步，默认为 3。
+        record_shapes (bool): 是否记录张量形状，默认为 False。
+        profile_memory (bool): 是否分析内存，默认为 False。
+        with_stack (bool): 是否记录调用栈，默认为 True。
+        export_chrome_trace (bool): 是否导出 Chrome trace 格式，默认为 False。
+    """
 
     profiler_export_path: Optional[Path]  # e.g. ./tb_logs
     wait: int = 1
@@ -304,7 +425,15 @@ class ProfilerArgs:
 
 @dataclass
 class ModelArgs:
-    """Arguments related to model architecture"""
+    """模型架构和初始化参数。
+
+    Attributes:
+        model_config (NanotronConfigs): 模型配置（如 LlamaConfig、Qwen2Config）。
+        init_method (Union[RandomInit, SpectralMupInit, ExistingCheckpointInit]): 参数初始化方法。
+        dtype (Optional[torch.dtype]): 模型计算精度，默认为 bfloat16。
+        make_vocab_size_divisible_by (int): 使词表大小可被该值整除，默认为 1。
+        ddp_bucket_cap_mb (int): DDP 桶大小（MB），默认为 25。
+    """
 
     model_config: NanotronConfigs
     init_method: Union[RandomInit, SpectralMupInit, ExistingCheckpointInit]
@@ -329,7 +458,13 @@ class ModelArgs:
 
 @dataclass
 class TokenizerArgs:
-    """Arguments related to the tokenizer"""
+    """分词器参数。
+
+    Attributes:
+        tokenizer_name_or_path (Optional[str]): 分词器名称或路径。
+        tokenizer_revision (Optional[str]): 分词器版本。
+        tokenizer_max_length (Optional[int]): 分词器最大长度。
+    """
 
     tokenizer_name_or_path: Optional[str] = None
     tokenizer_revision: Optional[str] = None
@@ -338,7 +473,19 @@ class TokenizerArgs:
 
 @dataclass
 class TokensArgs:
-    """Arguments related to the tokens, sequence, batch and steps of the training"""
+    """Token、序列、批大小和训练步数参数。
+
+    全局批大小 = micro_batch_size × batch_accumulation_per_replica × dp
+
+    Attributes:
+        sequence_length (int): 序列长度。
+        train_steps (int): 总训练步数。
+        micro_batch_size (int): 微批大小（每个 GPU 上的批大小）。
+        batch_accumulation_per_replica (int): 每个副本的梯度累积步数。
+        val_check_interval (Optional[int]): 验证检查间隔，-1 表示不验证。
+        limit_val_batches (Optional[int]): 验证批次数限制，0 表示不验证。
+        limit_test_batches (Optional[int]): 测试批次数限制，0 表示不测试。
+    """
 
     sequence_length: int
     train_steps: int
@@ -352,14 +499,18 @@ class TokensArgs:
 
 @dataclass
 class LRSchedulerArgs:
-    """Arguments related to the learning rate scheduler
+    """学习率调度器参数。
 
-    lr_warmup_steps: number of steps to warmup the learning rate
-    lr_warmup_style: linear or constant
-    lr_decay_style: linear, cosine or 1-sqrt
-    min_decay_lr: minimum learning rate after decay
-    lr_decay_steps: optional number of steps to decay the learning rate otherwise will default to train_steps - lr_warmup_steps
-    lr_decay_starting_step: optional number of steps to decay the learning rate otherwise will default to lr_warmup_steps
+    学习率变化过程：warmup → 稳定 → decay
+
+    Attributes:
+        learning_rate (float): 峰值学习率。
+        lr_warmup_steps (int): 预热步数，默认为 0。
+        lr_warmup_style (str): 预热方式，"linear" 或 "constant"。
+        lr_decay_style (str): 衰减方式，"linear"、"cosine" 或 "1-sqrt"。
+        lr_decay_steps (Optional[int]): 衰减步数，默认为 train_steps - warmup_steps。
+        lr_decay_starting_step (Optional[int]): 衰减开始步数，默认为 warmup_steps。
+        min_decay_lr (float): 衰减后的最小学习率，默认为 learning_rate。
     """
 
     learning_rate: float
@@ -389,11 +540,25 @@ class LRSchedulerArgs:
 
 @dataclass
 class SGDOptimizerArgs:
+    """SGD 优化器参数。
+
+    Attributes:
+        name (str): 优化器名称，默认为 "sgd"。
+    """
     name: str = "sgd"
 
 
 @dataclass
 class AdamWOptimizerArgs:
+    """AdamW 优化器参数。
+
+    Attributes:
+        adam_eps (float): Adam 的 epsilon 值，防止除零。
+        adam_beta1 (float): Adam 的一阶矩衰减系数。
+        adam_beta2 (float): Adam 的二阶矩衰减系数。
+        torch_adam_is_fused (bool): 是否使用 PyTorch 的融合 Adam 实现。
+        name (str): 优化器名称，默认为 "adamW"。
+    """
     adam_eps: float
     adam_beta1: float
     adam_beta2: float
@@ -403,7 +568,17 @@ class AdamWOptimizerArgs:
 
 @dataclass
 class OptimizerArgs:
-    """Arguments related to the optimizer and learning rate"""
+    """优化器和学习率参数。
+
+    Attributes:
+        optimizer_factory (Union[SGDOptimizerArgs, AdamWOptimizerArgs]): 优化器工厂配置。
+        zero_stage (int): ZeRO 优化阶段（0/1）。
+        weight_decay (float): 权重衰减系数。
+        clip_grad (Optional[float]): 梯度裁剪阈值。
+        accumulate_grad_in_fp32 (bool): 是否在 FP32 精度下累积梯度。
+        learning_rate_scheduler (LRSchedulerArgs): 学习率调度器配置。
+        weight_decay_exclude_named_params (Optional[List[str]]): 排除权重衰减的参数名正则模式列表。
+    """
 
     optimizer_factory: Union[SGDOptimizerArgs, AdamWOptimizerArgs]
     zero_stage: int
@@ -422,6 +597,18 @@ class OptimizerArgs:
 
 @dataclass
 class GenerationArgs:
+    """文本生成参数。
+
+    Attributes:
+        sampler (Optional[Union[str, SamplerType]]): 采样策略（greedy/top_k/top_p/multinomial）。
+        temperature (Optional[float]): 采样温度。
+        top_k (Optional[int]): Top-K 采样的 K 值。
+        top_p (Optional[float]): Top-P（核）采样的 P 值。
+        n_samples (Optional[int]): 生成样本数。
+        eos (Optional[str]): 结束标记。
+        seed (Optional[int]): 生成随机种子，默认为 DEFAULT_SEED。
+        use_cache (Optional[bool]): 是否使用 KV 缓存，默认为 False。
+    """
     sampler: Optional[Union[str, SamplerType]] = None
     temperature: Optional[float] = None
     top_k: Optional[int] = None
@@ -440,7 +627,26 @@ class GenerationArgs:
 
 @dataclass
 class Config:
-    """Main configuration class"""
+    """Nanotron 顶层配置类，组合所有子配置。
+
+    该类是整个训练配置的入口点，包含模型、并行、优化器、数据等所有配置。
+    支持从 YAML 文件加载和保存，并进行跨字段的健全性检查。
+
+    Attributes:
+        general (GeneralArgs): 通用训练参数。
+        parallelism (ParallelismArgs): 并行配置。
+        model (ModelArgs): 模型配置。
+        tokenizer (Optional[TokenizerArgs]): 分词器配置。
+        checkpoints (Optional[CheckpointsArgs]): 检查点配置。
+        logging (Optional[LoggingArgs]): 日志配置。
+        metrics_logging (Optional[MetricsLoggingArgs]): 指标日志配置。
+        tokens (Optional[TokensArgs]): Token 和训练步数配置。
+        optimizer (Optional[OptimizerArgs]): 优化器配置。
+        data_stages (Optional[List[DatasetStageArgs]]): 训练阶段数据配置。
+        profiler (Optional[ProfilerArgs]): 性能分析配置。
+        lighteval (Optional[LightEvalConfig]): LightEval 评估配置。
+        s3_upload (Optional[S3UploadArgs]): S3 上传配置。
+    """
 
     general: GeneralArgs
     parallelism: ParallelismArgs
@@ -458,10 +664,24 @@ class Config:
 
     @classmethod
     def create_empty(cls):
+        """创建一个所有字段为 None 的空配置对象。
+
+        Returns:
+            Config: 空配置对象。
+        """
         cls_fields = fields(cls)
         return cls(**{f.name: None for f in cls_fields})
 
     def __post_init__(self):
+        """配置初始化后的跨字段验证和默认值设置。
+
+        执行以下检查：
+            - S3 上传和 LightEval 配置的一致性
+            - Profiler 步数不超过训练步数
+            - 学习率衰减步数默认值
+            - 数据阶段的排序和唯一性
+            - 模型并行与注意力头的兼容性
+        """
 
         if self.s3_upload is not None:
             self.s3_upload.__post_init__()
@@ -554,13 +774,31 @@ class Config:
 
     @property
     def global_batch_size(self):
+        """计算全局批大小。
+
+        global_batch_size = micro_batch_size × batch_accumulation_per_replica × dp
+
+        Returns:
+            int: 全局批大小。
+        """
         return self.tokens.micro_batch_size * self.tokens.batch_accumulation_per_replica * self.parallelism.dp
 
     @property
     def global_batch_size_in_tokens(self):
+        """计算全局批大小的 token 数。
+
+        Returns:
+            int: 全局批大小（以 token 为单位）。
+        """
         return self.global_batch_size * self.tokens.sequence_length
 
     def save_as_yaml(self, file_path: str, sanity_checks: bool = True):
+        """将配置保存为 YAML 文件。
+
+        Args:
+            file_path (str): 保存路径。
+            sanity_checks (bool): 是否验证保存后可以重新加载，默认为 True。
+        """
         config_dict = serialize(self)
         file_path = str(file_path)
         with open(file_path, "w") as f:
@@ -571,18 +809,37 @@ class Config:
             _ = get_config_from_file(file_path, config_class=self.__class__)
 
     def get_yaml(self):
+        """获取配置的 YAML 字符串表示。
+
+        Returns:
+            str: YAML 格式的配置字符串。
+        """
         config_dict = serialize(self)
         return yaml.dump(config_dict)
 
     @classmethod
     def load_from_yaml(cls, file_path: str):
+        """从 YAML 文件加载配置。
+
+        Args:
+            file_path (str): YAML 文件路径。
+
+        Returns:
+            Config: 加载的配置对象。
+        """
         config_dict = yaml.load(open(file_path), Loader=SafeLoader)
         return get_config_from_dict(config_dict, config_class=cls)
 
     def as_dict(self) -> dict:
+        """将配置转换为字典。
+
+        Returns:
+            dict: 配置字典。
+        """
         return serialize(self)
 
     def print_config_details(self):
+        """打印配置的详细信息，包括模型架构、训练配置和并行设置。"""
         print("\n=== Model Architecture ===")
         print(f"hidden_size: {self.model.model_config.hidden_size}")
         print(f"num_layers: {self.model.model_config.num_hidden_layers}")
@@ -609,13 +866,19 @@ class Config:
 def get_config_from_dict(
     config_dict: dict, config_class: Type = Config, skip_unused_config_keys: bool = False, skip_null_keys: bool = False
 ):
-    """Get a config object from a dictionary
+    """从字典创建配置对象。
+
+    使用 dacite 库进行类型安全的反序列化，支持自动类型转换
+    （如字符串到 torch.dtype、枚举类型等）。
 
     Args:
-        args: dictionary of arguments
-        config_class: type of the config object to get as a ConfigTypes (Config, LightevalConfig, LightevalSlurm) or str
-        skip_unused_config_keys: whether to skip unused first-nesting-level keys in the config file (for config with additional sections)
-        skip_null_keys: whether to skip keys with value None at first and second nesting level
+        config_dict (dict): 配置字典。
+        config_class (Type): 配置类类型，默认为 Config。
+        skip_unused_config_keys (bool): 是否跳过未使用的顶层键，默认为 False。
+        skip_null_keys (bool): 是否跳过值为 None 的键，默认为 False。
+
+    Returns:
+        Config: 配置对象。
     """
     if skip_unused_config_keys:
         logger.warning("skip_unused_config_keys set")
@@ -655,15 +918,17 @@ def get_config_from_file(
     skip_unused_config_keys: bool = False,
     skip_null_keys: bool = False,
 ) -> Config:
-    """Get a config object from a file (python or YAML)
+    """从 YAML 文件加载配置对象。
 
     Args:
-        config_path: path to the config file
-        config_type: if the file is a python file, type of the config object to get as a
-            ConfigTypes (Config, LightevalConfig, LightevalSlurm) or str
-            if None, will default to Config
-        skip_unused_config_keys: whether to skip unused first-nesting-level keys in the config file (for config with additional sections)
-        skip_null_keys: whether to skip keys with value None at first and second nesting level
+        config_path (str): YAML 配置文件路径。
+        config_class (Type): 配置类类型，默认为 Config。
+        model_config_class (Optional[Type]): 模型配置类，用于覆盖默认的模型配置类型。
+        skip_unused_config_keys (bool): 是否跳过未使用的顶层键。
+        skip_null_keys (bool): 是否跳过值为 None 的键。
+
+    Returns:
+        Config: 加载的配置对象。
     """
     # Open the file and load the file
     with open(config_path) as f:
@@ -685,8 +950,18 @@ def get_config_from_file(
 
 
 def _calculate_model_params(config: Config):
-    """Calculate and format the number of parameters in the model.
-    N = vocab * h * 2 + num_layers * (3 * h * inter + 4 * h * h)
+    """估算模型的参数数量。
+
+    使用简化公式估算 LLaMA 类模型的参数量：
+    N = vocab × h × (1 + tie_word_embeddings) + num_layers × (3 × h × inter + 4 × h²)
+
+    其中 h = hidden_size, inter = intermediate_size
+
+    Args:
+        config (Config): 配置对象。
+
+    Returns:
+        str: 人类可读格式的参数数量（如 "7B"、"70B"）。
     """
     num_params = human_format(
         config.model.model_config.vocab_size
