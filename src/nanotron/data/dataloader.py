@@ -21,6 +21,47 @@ from nanotron.sanity_checks import (
 
 logger = logging.get_logger(__name__)
 
+"""
+1. **数据分发**：每个 DP rank 获取不同数据
+2. **TP 同步**：同一 TP 组内数据一致
+3. **PP 分发**：只有输入 PP rank 获取实际数据，其他 rank 获取 `TensorPointer`
+4. **健全性检查**：验证 DP 间数据不同、TP 间数据同步
+
+# 数据批次在并行组间的分布
+batch = {
+    "input_ids": Tensor 或 TensorPointer,    # 实际数据或指针
+    "input_mask": Tensor 或 TensorPointer,
+    "position_ids": Tensor 或 TensorPointer,
+    "labels": Tensor 或 TensorPointer,
+}
+
+# 对于 PP：
+# - input_pp_rank: 获取实际 Tensor
+# - 其他 PP rank: 获取 TensorPointer（表示数据在别的 rank 上）
+
+┌──────────────────────────────────────────────────────────┐
+│                    数据加载流程                            │
+│                                                          │
+│  Nanoset / HuggingFace Dataset                           │
+│         │                                                │
+│         ▼                                                │
+│  Sampler (按 DP rank 分配不同数据)                        │
+│         │                                                │
+│         ▼                                                │
+│  CLM Collator (构建 input_ids, labels, mask, positions)  │
+│         │                                                │
+│         ▼                                                │
+│  sanity_check_dataloader()                               │
+│  ├── 验证 DP 间数据不同                                   │
+│  └── 验证 TP 间数据同步                                   │
+│         │                                                │
+│         ▼                                                │
+│  micro_batch (移至 CUDA)                                  │
+│  ├── DP rank 0: 实际 Tensor                              │
+│  ├── DP rank 1: 不同的实际 Tensor                         │
+│  └── PP rank ≠ input_rank: TensorPointer                 │
+└──────────────────────────────────────────────────────────┘
+"""
 
 def sanity_check_dataloader(
     dataloader: Iterator[Dict[str, Union[torch.Tensor, TensorPointer]]],

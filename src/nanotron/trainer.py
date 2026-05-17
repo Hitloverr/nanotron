@@ -127,7 +127,65 @@ def get_size(bytes):
             return f"{bytes:.2f}{unit}B"
         bytes /= 1024
 
+"""
+┌─────────────────────────────────────────────────────────────────────┐
+│                        完整训练迭代数据流                              │
+└─────────────────────────────────────────────────────────────────────┘
 
+1. 数据获取
+   Nanoset → Sampler → Collator → DataLoader
+       │
+       ▼
+   micro_batch = {
+       input_ids: [seq_len, batch_size],
+       input_mask: [seq_len, batch_size],
+       position_ids: [seq_len, batch_size],
+       labels: [seq_len, batch_size]
+   }
+
+2. 前向传播（Pipeline Engine 调度）
+   ┌──────────────────────────────────────────────────┐
+   │ PP Rank 0          PP Rank 1          PP Rank 2  │
+   │                                                    │
+   │ Embedding →        Transformer       → LM Head   │
+   │ + Layer 0-5        Layer 6-11        + Loss       │
+   │                                                    │
+   │ TP: 权重分片       TP: 权重分片       TP: 权重分片 │
+   │ AllReduce/         AllReduce/         AllReduce/  │
+   │ ReduceScatter      ReduceScatter      ReduceScatter│
+   └──────────────────────────────────────────────────┘
+       │
+       ▼
+   loss = output["loss"] / nb_microbatches
+
+3. 反向传播
+   loss.backward() 或 grad_accumulator.backward(loss)
+       │
+       ▼
+   梯度通过 Pipeline 反向传播
+   ├── 激活重计算（如果启用 recompute_layer）
+   └── 跨 PP rank 发送梯度
+
+4. 梯度处理
+   ├── FP32 梯度累积（跨 micro-batch）
+   ├── 跨 DP 梯度同步 (AllReduce / ReduceScatter)
+   ├── 绑定参数梯度同步 (sync_tied_weights_gradients)
+   └── 梯度裁剪 (clip_grad_norm)
+
+5. 优化器步进
+   optimizer.step()
+   ├── ZeRO: 只更新本地分片的优化器状态
+   └── 参数更新后 AllGather 同步
+
+6. 学习率调度
+   lr_scheduler.step()
+
+7. 日志与监控
+   ├── WandB 日志
+   ├── 训练吞吐量统计
+   └── 内存使用监控
+
+"""
 class DistributedTrainer:
     def __init__(
         self,
@@ -144,6 +202,24 @@ class DistributedTrainer:
             config_class: The `Config` class to use.
             model_config_class: The `ModelConfig` class to use (for example `LlamaConfig`). Defaults to `None` which will use the model config class defined in the config.
             model_class: The `NanotronModel` class to use (for example `LlamaForTraining`). Defaults to `None` which will use the model class defined in the config.
+
+        DistributedTrainer.__init__()
+        │
+        ├── 1. 加载配置 (Config)
+        ├── 2. 初始化并行上下文 (ParallelContext)
+        ├── 3. 设置日志级别
+        ├── 4. 设置随机种子（每个 TP rank 不同）
+        ├── 5. 初始化随机状态
+        ├── 6. 初始化模型 (init_model)
+        │   └── CONFIG_TO_MODEL_CLASS 映射：
+        │       LlamaConfig → LlamaForTraining
+        │       Starcoder2Config → Starcoder2ForTraining
+        │       Qwen2Config → Qwen2ForTraining
+        ├── 7. 初始化优化器和梯度累积器
+        ├── 8. 初始化学习率调度器
+        ├── 9. 加载检查点（如果存在）
+        ├── 10. 初始化指标日志
+        └── 11. 初始化 S3 上传和评估运行器    
         """
 
         super().__init__()
@@ -601,6 +677,38 @@ class DistributedTrainer:
 
         self.post_training()
 
+    """
+    # 伪代码表示
+    for iteration_step in range(start_step, total_steps):
+        # 1. 获取数据批次
+        batch = next(dataloader)
+
+        # 2. 前向传播（通过 PipelineEngine 调度）
+        #    - AFAB: All Forward All Backward
+        #    - 1F1B: One Forward One Backward
+        loss = pipeline_engine.forward_backward(batch, model, grad_accumulator)
+
+        # 3. 梯度同步（跨 DP）
+        sync_gradients_across_dp()
+
+        # 4. 梯度裁剪
+        clip_grad_norm()
+
+        # 5. 优化器步进
+        optimizer.step()
+
+        # 6. 学习率调度
+        lr_scheduler.step()
+
+        # 7. 检查点保存（按间隔）
+        if should_save:
+            save(model, optimizer, lr_scheduler, metadata)
+
+        # 8. 评估（按间隔）
+        if should_eval:
+            lighteval_runner.eval()
+    
+    """
     def training_step(
         self, dataloader: Iterator[Dict[str, Union[torch.Tensor, TensorPointer]]]
     ) -> Tuple[Iterable[Dict], Optional[torch.Tensor]]:

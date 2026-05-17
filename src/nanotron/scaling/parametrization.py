@@ -12,6 +12,27 @@ from nanotron.parallel.tensor_parallel.nn import (
     TensorParallelEmbedding,
     TensorParallelRowLinear,
 )
+
+"""
+ParametrizationMethod
+├── STANDARD: 标准初始化
+│   └── StandardParametrizator
+│       ├── Column Linear: N(0, std)
+│       ├── Row Linear: N(0, std / scaling_factor)
+│       ├── Embedding: N(0, std)
+│       └── Layer Norm: weight=1, bias=0
+│
+└── SPECTRAL_MUP: Spectral μP 初始化
+    └── SpectralMupParametrizator
+        ├── 基于 μTransfer 理论
+        ├── 缩放因子: sqrt(1/d_h) 而非 1/sqrt(d_h)
+        └── 允许超参数从小模型迁移到大模型
+
+缩放方法 (InitScalingMethod):
+├── NUM_LAYERS: 缩放因子 = sqrt(2 * num_layers)
+└── 其他自定义方法
+"""
+
 from torch import nn
 from torch.nn import init
 
@@ -19,6 +40,7 @@ from torch.nn import init
 class ParametrizationMethod(Enum):
     STANDARD = auto()
     SPECTRAL_MUP = auto()
+
 
 
 class Parametrizator:

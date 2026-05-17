@@ -284,6 +284,19 @@ class NanotronParameter(nn.Parameter):
     Note:
         NanotronParameter 继承自 nn.Parameter，因此可以无缝替换标准 Parameter，
         但需要通过 mark_as_sharded() 或 mark_as_tied() 方法添加分布式元数据。
+
+    # 分片信息
+    sharded_info: ShardedInfo
+    │   ├── global_ranks: Tuple[int, ...]        # 持有分片的全局 rank
+    │   ├── local_global_slices_pairs            # 本地/全局切片映射
+    │   └── unsharded_shape: Tuple[int, ...]     # 未分片的完整形状
+
+    # 绑定信息
+    tied_info: TiedInfo
+    │   ├── name: str                            # 参数名
+    │   ├── root_module: nn.Module               # 所属模块
+    │   ├── global_ranks: Tuple[int, ...]        # 绑定的全局 rank
+    │   └── reduce_op: Optional[ReduceOp]        # 梯度归约操作
     """
 
     NANOTRON_PARAMETER_METADATA_ATTRIBUTE_NAME = "__nanotron_metadata__"

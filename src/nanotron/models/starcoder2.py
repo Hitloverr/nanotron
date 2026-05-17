@@ -56,7 +56,10 @@ from nanotron.parallel.tensor_parallel.nn import (
 from nanotron.parallel.tied_parameters import tie_parameters
 from nanotron.random import RandomStates, branch_random_state
 from nanotron.utils import checkpoint_method
-
+"""
+- 代码生成模型架构
+- 支持注意力偏置
+"""
 
 def pad_to_right(tensor, mask, new_tensor=None):
     """Transform a left-padded tensor into a right-padded tensor. (Useful for prefilling key/value states)

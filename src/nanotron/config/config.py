@@ -863,6 +863,7 @@ class Config:
         print("=" * 20 + "\n")
 
 
+
 def get_config_from_dict(
     config_dict: dict, config_class: Type = Config, skip_unused_config_keys: bool = False, skip_null_keys: bool = False
 ):
@@ -910,7 +911,7 @@ def get_config_from_dict(
         ),
     )
 
-
+# xx 配置加载
 def get_config_from_file(
     config_path: str,
     config_class: Type = Config,

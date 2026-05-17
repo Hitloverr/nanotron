@@ -38,6 +38,16 @@ logger = logging.get_logger(__name__)
 
 class NanotronModel(nn.Module, LoggingCollectorMixin, metaclass=ABCMeta):
     """Nanotron 模型的抽象基类，定义了所有模型必须遵循的接口和约定。
+    
+    build_model(model_config, parallel_context, ...)
+    │
+    ├── 1. 实例化模型类（如 LlamaForTraining）
+    ├── 2. 调用 model.init_model_randomly() 初始化参数
+    ├── 3. 绑定参数（tie_parameters）
+    │   └── 例如：embedding 和 lm_head 权重共享
+    ├── 4. 为绑定权重创建进程组
+    ├── 5. 健全性检查（sanity_check）
+    └── 6. 包装 DDP（如果 DP > 1）
 
     所有 Nanotron 中的模型（如 Llama、Qwen2 等）都必须继承此类。
     该基类提供了分布式训练所需的基础设施，包括：

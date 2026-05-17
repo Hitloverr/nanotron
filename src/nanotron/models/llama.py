@@ -35,6 +35,48 @@ LLaMA 模型实现 —— Nanotron 中的 LLaMA/Llama2/Llama3 大语言模型。
     - RoPE: 旋转位置编码，支持交错和非交错两种模式
     - 张量并行: QKV 投影和 MLP 使用列/行切分
     - 流水线并行: 所有子模块通过 PipelineBlock 包装
+
+LlamaForTraining
+├── model: LlamaModel
+│   ├── token_position_embeddings: PipelineBlock
+│   │   ├── token_embedding: TensorParallelEmbedding
+│   │   └── rotary_embedding: RotaryEmbedding / LlamaRotaryEmbedding
+│   ├── layers: List[PipelineBlock]  (每个 Transformer 层)
+│   │   └── LlamaDecoderLayer
+│   │       ├── input_layernorm: TritonRMSNorm
+│   │       ├── self_attn: CoreAttention + TP QKV Linear
+│   │       ├── post_attention_layernorm: TritonRMSNorm
+│   │       └── mlp: MLP (gate_up_proj + down_proj)
+│   └── final_norm: PipelineBlock → TritonRMSNorm
+└── lm_head: PipelineBlock → TensorParallelColumnLinear
+
+Decoder layer：
+    hidden_states
+        │
+        ▼ input_layernorm
+        │
+        ▼ QKV Projection (TensorParallelColumnLinear)
+        │   Q: [seq, batch, num_heads/tp, head_dim]
+        │   K: [seq, batch, num_kv_heads/tp, head_dim]
+        │   V: [seq, batch, num_kv_heads/tp, head_dim]
+        │
+        ▼ Rotary Embedding (RoPE)
+        │
+        ▼ CoreAttention (Flash Attention)
+        │   output: [seq, batch, hidden_size]
+        │
+        ▼ O Projection (TensorParallelRowLinear)
+        │
+        ▼ Residual Connection
+        │
+        ▼ post_attention_layernorm
+        │
+        ▼ MLP
+        │   gate_up_proj (TensorParallelColumnLinear) → GLU → down_proj (TensorParallelRowLinear)
+        │
+        ▼ Residual Connection
+        │
+        ▼ 输出 hidden_states
 """
 
 from typing import Dict, List, Optional, Union

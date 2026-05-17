@@ -11,6 +11,29 @@
     2. 每次反向传播时，将半精度梯度累加到 FP32 缓冲区
     3. 支持跨 DP 进程组的梯度同步（AllReduce 或 ReduceScatter）
     4. 支持 ZeRO Stage 1 的参数分片优化
+
+class FP32GradientAccumulator(GradientAccumulator):
+    在 FP32 中累积梯度，支持跨 micro-batch 累积
+    def backward(self, loss):
+        反向传播，累积 FP32 梯度
+
+    def sync_gradients_across_dp(self, dp_pg, reduce_op, reduce_scatter):
+        跨 DP 进程组同步梯度
+
+    def get_parameter_for_optimizer(self, name):
+        返回带有累积梯度的参数（供优化器使用）
+
+        
+Micro-batch 1 → Loss → Backward → 累积 FP32 梯度
+Micro-batch 2 → Loss → Backward → 累积 FP32 梯度
+...
+Micro-batch N → Loss → Backward → 累积 FP32 梯度
+                                    │
+                                    ▼
+                         sync_gradients_across_dp()
+                                    │
+                                    ▼
+                              optimizer.step()
 """
 
 import dataclasses

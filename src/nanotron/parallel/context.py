@@ -8,6 +8,8 @@
     将全局进程按照 5 维张量 [EP, PP, DP, CP, TP] 进行排列，
     通过不同的转置和 reshape 操作派生出各类并行进程组。
     约束条件：EP × PP × DP × CP × TP == WORLD_SIZE
+
+ranks [EP][PP][DP][CP][TP]
 """
 
 import os

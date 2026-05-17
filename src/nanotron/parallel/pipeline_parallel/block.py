@@ -92,6 +92,8 @@ class PipelineBlock(nn.Module):
     def build_and_set_rank(self, pp_rank: int):
         """指定该 PipelineBlock 在哪个 PP rank 上执行计算，并在该 rank 上实例化模块。
 
+        只在当前 rank 等于 pp_rank 时实例化模块
+
         该方法在模型构建阶段调用，为每个 PipelineBlock 分配 PP rank。
         只有当前进程的 rank 等于 pp_rank 时，才会调用 module_builder 实例化子模块，
         其他 rank 上 self.pp_block 不存在，forward 时仅做数据转发。
@@ -123,16 +125,18 @@ class PipelineBlock(nn.Module):
     def forward(self, **kwargs):
         """执行前向传播，根据当前 rank 是否为 compute rank 走不同路径。
 
+        通过TensorPointer机制传递张量
+
         核心逻辑分为两个分支：
 
-        1. 非 compute rank（当前 rank ≠ self.rank）：
+        1. 非 compute rank（当前 rank ≠ self.rank）：发送/跳过
            - 遍历输入，将实际张量发送到 compute rank
            - TensorPointer 类型的输入直接跳过（已在其他地方处理）
            - 如果有 pipeline_state，使用缓冲区发送（支持 1F1B 调度）
            - 否则使用直接 P2P 发送（仅支持推理，不支持梯度传播）
            - 返回所有输出键对应的 TensorPointer
 
-        2. compute rank（当前 rank == self.rank）：
+        2. compute rank（当前 rank == self.rank）：接收并执行计算
            - 从前序 rank 接收 TensorPointer 指向的张量
            - 实际张量直接使用
            - 调用 pp_block 执行计算

@@ -88,6 +88,17 @@ class TensorParallelColumnLinear(nn.Linear):
         mode (TensorParallelLinearMode): 通信模式（ALL_REDUCE 或 REDUCE_SCATTER）。
         async_communication (bool): 是否使用异步通信。
         tp_recompute_allgather (bool): 是否在反向传播时重新计算 AllGather 而非缓存。
+
+    输入 X [seq, batch, hidden]
+        │
+        ▼ AllGather（如果 REDUCE_SCATTER 模式）
+    X 完整 [seq, batch, hidden]
+            │
+            ▼ 本地矩阵乘
+    X @ W_local → [seq, batch, intermediate/tp_size]
+            │
+            ▼ AllReduce / ReduceScatter
+    输出（聚合后完整或按序列切分）
     """
 
     def __init__(

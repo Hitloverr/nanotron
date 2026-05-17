@@ -20,7 +20,19 @@ from nanotron.parallel import ParallelContext
 from nanotron.parallel.parameters import NanotronParameter
 
 logger = logging.get_logger(__name__)
+"""
+ZeRO Stage 1 工作原理：
+1. 将优化器状态（momentum, variance 等）分片到 DP rank
+2. 每个 rank 只维护 1/DP_size 的优化器状态
+3. 参数和梯度仍然完整存在于每个 rank
 
+参数分片映射：
+param_name_to_dp_rank_offsets = {
+    "weight": {rank_0: (0, N/DP), rank_1: (N/DP, 2N/DP), ...},
+    "bias":   {rank_0: (0, M/DP), rank_1: (M/DP, 2M/DP), ...},
+}
+
+"""
 
 class ZeroDistributedOptimizer(InheritFromOtherOptimizer):
     """Optimizer that handles partitioning of optimizer's states across DP ranks. See ZeRO Stage 1 in the paper https://arxiv.org/abs/1910.02054v3 for more details."""

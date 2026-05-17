@@ -32,7 +32,13 @@ from nanotron.scaling.parametrization import SpectralMupParametrizator, Standard
 from nanotron.logging import LogMixin
 from nanotron.nn.llama3_ring_attention import llama3_flash_attn_varlen_kvpacked_func, llama3_flash_attn_prepare_cu_seqlens
 logger = logging.get_logger(__name__)
-
+"""
+- 支持 GQA（Grouped Query Attention）
+- 支持 MoE（Mixture of Experts）
+- 支持 Sliding Window Attention
+- 支持 Flex Attention（文档级掩码）
+- 支持 Ring Attention（长序列）
+"""
 
 class CoreAttention(nn.Module):
     """Core attention module that can use different attention implementations"""

@@ -16,7 +16,28 @@ from nanotron.logging import log_rank
 
 logger = logging.get_logger(__name__)
 
+# 核心数据集
+"""
+Nanoset
+├── 基于 DatatroveFolderDataset（datatrove 格式）
+├── 支持多数据集加权混合
+├── 预计算索引缓存
+├── 支持 position_ids 直接构建
+└── 支持 EOS token 处理
 
+原始文本 → tools/preprocess_data.py → Datatrove 格式（.ds 文件）
+                                         │
+                                         ▼
+                                    Nanoset 加载
+                                         │
+                                         ▼
+                                   CLM Collator
+                                    │        │
+                                    ▼        ▼
+                              input_ids   labels (shifted)
+                              attention_mask
+                              position_ids
+"""
 class Nanoset(torch.utils.data.Dataset):
     """
     The Nanoset dataset
